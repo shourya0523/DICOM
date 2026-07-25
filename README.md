@@ -1,156 +1,70 @@
-# Hospital Node Boilerplate
+# Federated DICOM Search — Zero-Trust Nodes + Portal
 
-A lightweight FastAPI application that simulates a single, siloed hospital database node for **The Open Accelerator Healthcare Hackathon — Track 1: Federated Medical Imaging Search**.
+Hackathon Track 1: each hospital is an independent FastAPI node with its own SSO
+and policy. A central portal fans out queries and brokers authorized results to
+the researcher (`node → portal → user`).
 
-> **First time?** Start with the [Pre-Hackathon Setup Guide](PRE_HACK_SETUP.md) to get Python, Git, and everything else installed before the event.
-
-## What This Is
-
-This boilerplate represents an intentionally "dumb" hospital edge node. Each instance:
-
-- Blindly serves its own local study data
-- Has **zero awareness** of other hospitals
-- Lacks **any authentication**
-- Intentionally **leaks PII** (patient names, birthdates)
-
-You will run **three separate instances** on different ports to simulate a disconnected, multi-hospital network. Your challenge is to build the overarching aggregation, privacy, and access-control layer on top.
-
-```
-┌──────────────┐   ┌──────────────┐   ┌──────────────┐
-│  BCH  :8001  │   │  MGH  :8002  │   │  BWH  :8003  │
-│  900 studies │   │  900 studies │   │  900 studies │
-│  No auth     │   │  No auth     │   │  No auth     │
-│  PII exposed │   │  PII exposed │   │  PII exposed │
-└──────────────┘   └──────────────┘   └──────────────┘
-       ↑                  ↑                  ↑
-       └──────────────────┼──────────────────┘
-                          │
-                    YOUR SOLUTION
-              (aggregator, auth, redaction)
-```
-
-## Quick Start
-
-### 1. Install dependencies
+## Quick start
 
 ```bash
-cd hospital-node-boilerplate
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
+export PYTHONPATH="$PWD"
+
+# Terminal 1 — hospital nodes
+./scripts/start_nodes.sh
+
+# Terminal 2 — portal UI + API
+./scripts/start_portal.sh
 ```
 
-### 2. Start the three hospital nodes
+- Portal UI: http://127.0.0.1:8010
+- BCH / MGH / BWH: `:8001` / `:8002` / `:8003`
+- Contract smoke: `python3 tests/contract_smoke.py`
 
-Open three separate terminal windows:
-
-```bash
-# Terminal 1 — Boston Children's Hospital
-HOSPITAL_NODE=BCH uvicorn main:app --port 8001 --reload
-
-# Terminal 2 — Massachusetts General Hospital
-HOSPITAL_NODE=MGH uvicorn main:app --port 8002 --reload
-
-# Terminal 3 — Brigham and Women's Hospital
-HOSPITAL_NODE=BWH uvicorn main:app --port 8003 --reload
-```
-
-### 3. Verify they're running
-
-```bash
-curl http://localhost:8001/health
-# {"status":"healthy","node":"BCH"}
-
-curl http://localhost:8002/health
-# {"status":"healthy","node":"MGH"}
-
-curl http://localhost:8003/health
-# {"status":"healthy","node":"BWH"}
-```
-
-## API Reference
-
-Each node exposes three endpoints. All responses are JSON.
-
-
-| Method | Endpoint                  | Description                                 |
-| ------ | ------------------------- | ------------------------------------------- |
-| `GET`  | `/health`                 | Health check — returns node name and status |
-| `GET`  | `/api/studies`            | Returns all study records on this node      |
-| `GET`  | `/api/studies/{study_id}` | Returns a single study by StudyID, or 404   |
-
-
-**Examples:**
-
-```bash
-# Get all studies from BCH
-curl http://localhost:8001/api/studies
-
-# Get a specific study by ID
-curl http://localhost:8001/api/studies/BR-7721
-```
-
-> **Note:** There is no search endpoint — that's intentional. Building search, filtering, and cross-node querying is part of your challenge.
-
-### Interactive API Docs
-
-FastAPI auto-generates interactive Swagger UI docs for each running node:
-
-- BCH: [http://localhost:8001/docs](http://localhost:8001/docs)
-- MGH: [http://localhost:8002/docs](http://localhost:8002/docs)
-- BWH: [http://localhost:8003/docs](http://localhost:8003/docs)
-
-## Data Schema
-
-Each study record contains these fields (all strings):
-
-
-| Field              | Format                      | Example                         |
-| ------------------ | --------------------------- | ------------------------------- |
-| `PatientName`      | `LastName^FirstName`        | `Harrington^Lucas`              |
-| `PatientID`        | `PREFIX-NNNNN`              | `CHB-99214`                     |
-| `PatientBirthDate` | `YYYYMMDD`                  | `20181104`                      |
-| `PatientAge`       | `NNNY` / `NNNM` / `NNND`    | `007Y`                          |
-| `PatientSex`       | `M` / `F`                   | `M`                             |
-| `InstitutionName`  | Full hospital name          | `Boston Children's Hospital`    |
-| `StudyID`          | `PREFIX-NNNN`               | `BR-7721`                       |
-| `StudyInstanceUID` | DICOM UID format            | `1.3.12.2.1107.5.2.19.45152...` |
-| `StudyDate`        | `YYYYMMDD`                  | `20260715`                      |
-| `Modality`         | DICOM modality code         | `MR`                            |
-| `BodyPartExamined` | `BRAIN` / `HEART` / `FETAL` | `BRAIN`                         |
-| `Diagnosis`        | Full radiology report       | Multi-paragraph clinical text   |
-
-
-## Data Overview
-
-Each hospital has 900 pre-generated study records (300 brain, 300 heart, 300 fetal):
-
-- **BCH** (Boston Children's Hospital) — Pediatric patients, ages 0–21
-- **MGH** (Massachusetts General Hospital) — Adult patients, ages 22–85
-- **BWH** (Brigham and Women's Hospital) — Adult patients, ages 18–75
-
-Conditions overlap across hospitals, so a federated search for something like "hydrocephalus" will return results from multiple nodes.
+See [DEMO.md](DEMO.md) for the pitch walkthrough and known gaps.
 
 ## Architecture
 
+| Service | Port | Role |
+|---------|------|------|
+| BCH node | 8001 | Pediatric data; Harvard IRB → full metadata + retrieve |
+| MGH node | 8002 | Adult data; allowlisted `.edu` → count-only |
+| BWH node | 8003 | Adult data; no Harvard on SSO allowlist |
+| Portal | 8010 | Synonym expansion, fan-out, aggregate suppression, UI |
+
+SSO: per-node allowlists of `harvard.edu` / `mit.edu` / `northeastern.edu` / `bu.edu` emails.
+Tokens are HS256 JWTs signed with **distinct** per-node secrets (5-minute TTL).
+Scopes: `imaging:query`, `imaging:retrieve`.
+
+## Node API
+
+| Method | Path | Auth |
+|--------|------|------|
+| GET | `/health` | none |
+| POST | `/auth/login` | researcher profile body |
+| POST | `/query` | Bearer + `imaging:query` |
+| GET | `/retrieve/{study_id}` | Bearer + `imaging:retrieve` |
+| GET | `/audit` | none (demo) |
+| GET | `/api/studies*` | Bearer (legacy endpoints locked down) |
+
+## Portal API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/search` | Fan-out login+query; return aggregated results to user |
+| POST | `/retrieve` | Re-auth to node; broker study payload to user |
+| GET | `/profiles` | Demo researcher presets |
+| GET | `/audit/{node}` | Proxy node audit log |
+
+## Layout
+
 ```
-hospital-node-boilerplate/
-├── main.py              # FastAPI app — reads HOSPITAL_NODE env var to pick data file
-├── models.py            # Pydantic StudyRecord schema
-├── requirements.txt     # Runtime dependencies (fastapi, uvicorn, pydantic)
-├── data/
-│   ├── bch_data.json    # 900 records — Boston Children's Hospital
-│   ├── mgh_data.json    # 900 records — Massachusetts General Hospital
-│   └── bwh_data.json    # 900 records — Brigham and Women's Hospital
-└── scripts/
-    ├── generate_data.py # Gemini-powered data generator
-    └── requirements.txt # Generation-only dependencies
+auth/           # SSO policies, JWT, audit
+portal/         # broker + UI + synonyms
+shared/         # frozen contracts
+search.py       # local study matcher
+main.py         # hospital node app
+tests/          # contract smoke harness
 ```
-
-The `HOSPITAL_NODE` environment variable controls which JSON file gets loaded into memory at startup. The app is completely stateless — no database, no external services.
-
-## Tech Stack
-
-- Python 3.10+
-- FastAPI
-- Uvicorn
-- Pydantic
-

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Federated DICOM Search</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <p class="eyebrow">Zero-trust federated imaging</p>
+      <h1>DICOM Search Portal</h1>
+      <p class="lede">
+        Query hospital nodes independently. Each node authenticates via its own SSO
+        and decides what to return — full metadata, a count, suppressed, or denied.
+      </p>
+    </header>
+
+    <section class="panel">
+      <h2>Researcher profile</h2>
+      <div class="profile-row" id="profile-buttons"></div>
+      <div class="fields">
+        <label>Email <input id="email" type="email" /></label>
+        <label>Org <input id="org" type="text" /></label>
+        <label class="check"><input id="irb" type="checkbox" /> IRB approved</label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Search</h2>
+      <div class="search-row">
+        <input id="query" type="text" placeholder="pediatric brain MRI" value="pediatric brain MRI" />
+        <button id="search-btn" type="button">Search all nodes</button>
+      </div>
+      <p class="hint">Try also: <code>hydrocephalus</code>, <code>lissencephaly</code> (rare cohort)</p>
+    </section>
+
+    <section class="panel" id="results-panel" hidden>
+      <h2>Results</h2>
+      <div id="aggregate" class="aggregate"></div>
+      <div id="node-results" class="node-grid"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Retrieve (portal-brokered)</h2>
+      <div class="search-row">
+        <select id="retrieve-node">
+          <option value="BCH">BCH</option>
+          <option value="MGH">MGH</option>
+          <option value="BWH">BWH</option>
+        </select>
+        <input id="study-id" type="text" placeholder="Study ID e.g. BR-1543" />
+        <button id="retrieve-btn" type="button">Retrieve via portal</button>
+      </div>
+      <pre id="retrieve-out" class="codeblock"></pre>
+    </section>
+
+    <section class="panel">
+      <h2>Audit log</h2>
+      <div class="search-row">
+        <select id="audit-node">
+          <option value="BCH">BCH</option>
+          <option value="MGH">MGH</option>
+          <option value="BWH">BWH</option>
+        </select>
+        <button id="audit-btn" type="button">Load node audit</button>
+      </div>
+      <pre id="audit-out" class="codeblock"></pre>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
