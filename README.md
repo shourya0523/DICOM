@@ -60,3 +60,20 @@ search.py          # Local study matcher
 main.py            # Hospital node app
 tests/             # Contract smoke harness
 ```
+
+
+## Provider gateway + Compose demo
+
+Local microservice packaging (alongside the portal above):
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+- `services/hospital-node/` — hospital edge app (Compose / `--app-dir`)
+- `services/provider-gateway/` — installable provider gateway package
+- `data/hospitals/` — committed hospital JSON (BCH / MGH / BWH)
+- See `compose.yml`, `.env.example`, and `pyproject.toml`
+
+Hospital study JSON lives under `data/hospitals/`. Root `main.py` and Compose both read from there.

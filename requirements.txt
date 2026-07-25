@@ -3,3 +3,5 @@ uvicorn>=0.29.0
 pydantic>=2.0.0
 PyJWT>=2.8.0
 httpx>=0.27.0
+openmed[hf,mlx]>=1.9.1
+pytest>=8.0.0

@@ -1,5 +1,12 @@
 .env
-__pycache__/
-*.pyc
 venv/
 .venv/
+__pycache__/
+*.pyc
+*.egg-info/
+*.db
+*.db-*
+
+# Generated demo artefacts
+data/gateway/
+data/reports/

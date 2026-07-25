@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hospital Access Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/portal/assets/styles.css" />
+</head>
+<body>
+  <div class="atmosphere" aria-hidden="true"></div>
+  <div class="leaf-motif" aria-hidden="true"></div>
+
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand-block">
+        <p class="brand-mark">OpenMed Gateway</p>
+        <h1 id="provider-name">Hospital Access Portal</h1>
+        <p class="brand-sub">Allowlists · Review · Release</p>
+      </div>
+      <div class="session">
+        <label class="field-label" for="api-key">Gateway API key</label>
+        <div class="session-row">
+          <input id="api-key" type="password" value="demo-key" autocomplete="off" />
+          <button type="button" id="btn-connect" class="btn btn-primary">Connect</button>
+        </div>
+        <p id="session-status" class="session-status">Not connected</p>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button type="button" class="tab is-active" data-tab="requests" role="tab" aria-selected="true">
+        Review queue
+        <span id="pending-badge" class="badge badge-amber hidden">0</span>
+      </button>
+      <button type="button" class="tab" data-tab="allowlists" role="tab" aria-selected="false">
+        Organisation allowlists
+      </button>
+    </nav>
+
+    <main>
+      <section id="panel-requests" class="panel is-active" role="tabpanel">
+        <div class="panel-intro">
+          <h2>Pending access requests</h2>
+          <p>Approve or deny researcher requests that need a human decision at your boundary.</p>
+        </div>
+        <div class="toolbar">
+          <div class="filter-pills" id="status-filters">
+            <button type="button" class="pill is-active" data-status="PENDING_REVIEW">Pending</button>
+            <button type="button" class="pill" data-status="">All</button>
+            <button type="button" class="pill" data-status="APPROVED">Approved</button>
+            <button type="button" class="pill" data-status="REJECTED">Denied</button>
+            <button type="button" class="pill" data-status="DELIVERY_READY">Ready</button>
+          </div>
+          <button type="button" id="btn-refresh-requests" class="btn btn-ghost">Refresh</button>
+        </div>
+        <div id="requests-list" class="request-list"></div>
+      </section>
+
+      <section id="panel-allowlists" class="panel" role="tabpanel" hidden>
+        <div class="panel-intro">
+          <h2>Organisation allowlists</h2>
+          <p>Define which fields each partner organisation may request — and whether auto-approval is allowed.</p>
+        </div>
+
+        <div class="allowlist-layout">
+          <aside class="org-rail">
+            <div class="rail-head">
+              <h3>Partners</h3>
+              <button type="button" id="btn-new-org" class="btn btn-secondary btn-sm">New</button>
+            </div>
+            <ul id="org-list" class="org-list"></ul>
+          </aside>
+
+          <form id="org-form" class="org-form" autocomplete="off">
+            <div class="form-grid">
+              <div class="field">
+                <label for="org-id">Organisation ID</label>
+                <input id="org-id" name="organisation_id" required pattern="[a-z0-9\-]+" placeholder="partner-research-lab" />
+              </div>
+              <div class="field">
+                <label for="org-name">Display name</label>
+                <input id="org-name" name="display_name" required placeholder="Partner Research Lab" />
+              </div>
+              <div class="field">
+                <label for="org-status">Status</label>
+                <select id="org-status" name="status">
+                  <option value="ACTIVE">Active</option>
+                  <option value="SUSPENDED">Suspended</option>
+                  <option value="REVOKED">Revoked</option>
+                  <option value="EXPIRED">Expired</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="org-policy-version">Policy version</label>
+                <input id="org-policy-version" name="policy_version" value="v1" />
+              </div>
+            </div>
+
+            <fieldset class="toggles">
+              <legend>Auto-approval</legend>
+              <label class="toggle">
+                <input type="checkbox" id="meta-auto" />
+                <span>Metadata auto-approval</span>
+              </label>
+              <label class="toggle">
+                <input type="checkbox" id="data-auto" />
+                <span>Data auto-approval</span>
+              </label>
+            </fieldset>
+
+            <fieldset class="field-sets">
+              <legend>Allowed metadata fields</legend>
+              <div id="meta-fields" class="chip-grid"></div>
+            </fieldset>
+
+            <fieldset class="field-sets">
+              <legend>Allowed data fields</legend>
+              <div id="data-fields" class="chip-grid"></div>
+            </fieldset>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary" id="btn-save-org">Save allowlist</button>
+              <button type="button" class="btn btn-ghost" id="btn-revoke-org">Revoke</button>
+            </div>
+            <p id="org-form-status" class="form-status" aria-live="polite"></p>
+          </form>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/portal/assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+.git
+.env
+.pytest_cache
+.venv
+venv
+__pycache__
+*.pyc
+*.egg-info
+*.db
+*.db-*
+data/gateway
+data/reports
+tests
+tools

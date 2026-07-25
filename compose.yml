@@ -1,0 +1,77 @@
+# Local demo stack: one hospital node + its provider gateway.
+# Add further services (e.g. coordinator, UI) under `services:` — see placeholder at bottom.
+name: dicom-demo
+
+services:
+  hospital-node:
+    build:
+      context: .
+      target: hospital-node
+    environment:
+      HOSPITAL_NODE: ${PROVIDER_CODE:-BCH}
+    ports:
+      # Published so a coordinator/dev can inspect the raw node during the demo.
+      - "${NODE_PORT:-8001}:8001"
+    volumes:
+      # Edit hospital JSON without rebuilding the image.
+      - ./data/hospitals:/app/data/hospitals:ro
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  provider-gateway:
+    build:
+      context: .
+      target: gateway
+    depends_on:
+      hospital-node:
+        condition: service_healthy
+    environment:
+      PROVIDER_CODE: ${PROVIDER_CODE:-BCH}
+      PROVIDER_NAME: ${PROVIDER_NAME:-Boston Children's Hospital}
+      NODE_URL: http://hospital-node:8001
+      DATABASE_PATH: /var/lib/provider-gateway/gateway.db
+      TOKEN_SECRET: ${TOKEN_SECRET:?Set TOKEN_SECRET in .env}
+      SERVICE_API_KEY: ${SERVICE_API_KEY:?Set SERVICE_API_KEY in .env}
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PORT: 8101
+      OPENMED_FORCE_FALLBACK: ${OPENMED_FORCE_FALLBACK:-1}
+    ports:
+      - "${GATEWAY_PORT:-8101}:8101"
+    volumes:
+      - gateway-data:/var/lib/provider-gateway
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8101/health')"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # Placeholder for services added later, e.g.:
+  #
+  # coordinator:
+  #   build:
+  #     context: .
+  #     dockerfile: services/coordinator/Dockerfile
+  #   depends_on:
+  #     provider-gateway:
+  #       condition: service_healthy
+  #   environment:
+  #     PROVIDER_GATEWAY_URLS: http://provider-gateway:8101
+  #     SERVICE_API_KEY: ${SERVICE_API_KEY:?Set SERVICE_API_KEY in .env}
+  #   ports:
+  #     - "${COORDINATOR_PORT:-8000}:8000"
+  # ---------------------------------------------------------------------------
+
+volumes:
+  gateway-data:

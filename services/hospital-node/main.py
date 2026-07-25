@@ -29,10 +29,14 @@ from shared.contracts import (
 )
 
 NODE_DATA_MAP = {
-    "BCH": "data/hospitals/bch_data.json",
-    "MGH": "data/hospitals/mgh_data.json",
-    "BWH": "data/hospitals/bwh_data.json",
+    "BCH": "bch_data.json",
+    "MGH": "mgh_data.json",
+    "BWH": "bwh_data.json",
 }
+
+# Repo layout: <repo>/services/hospital-node/main.py -> <repo>/data/hospitals
+DEFAULT_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "hospitals"
+DATA_DIR = Path(os.environ.get("HOSPITAL_DATA_DIR", DEFAULT_DATA_DIR))
 
 HOSPITAL_NODE = os.environ.get("HOSPITAL_NODE", "").upper()
 
@@ -52,7 +56,7 @@ print(
     file=sys.stderr,
 )
 
-data_path = Path(__file__).parent / NODE_DATA_MAP[HOSPITAL_NODE]
+data_path = DATA_DIR / NODE_DATA_MAP[HOSPITAL_NODE]
 with open(data_path) as f:
     _raw = json.load(f)
 

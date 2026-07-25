@@ -88,7 +88,7 @@ Any editor works (PyCharm, Sublime Text, vim, etc.), but VS Code has the smoothe
 
 ```bash
 git clone <REPO_URL>
-cd hospital-node-boilerplate
+cd DICOM
 ```
 
 *(The repo URL will be shared at the hackathon or via your team channel.)*
@@ -144,19 +144,19 @@ This installs:
 Start a single hospital node to confirm your setup:
 
 ```bash
-HOSPITAL_NODE=BCH uvicorn main:app --port 8001 --reload
+HOSPITAL_NODE=BCH uvicorn main:app --app-dir services/hospital-node --port 8001 --reload
 ```
 
 On **Windows Command Prompt**, set the env var separately:
 ```bash
 set HOSPITAL_NODE=BCH
-uvicorn main:app --port 8001 --reload
+uvicorn main:app --app-dir services/hospital-node --port 8001 --reload
 ```
 
 On **Windows PowerShell**:
 ```bash
 $env:HOSPITAL_NODE="BCH"
-uvicorn main:app --port 8001 --reload
+uvicorn main:app --app-dir services/hospital-node --port 8001 --reload
 ```
 
 You should see output like:
@@ -184,13 +184,13 @@ To simulate the full multi-hospital network, open **three separate terminal wind
 
 ```bash
 # Terminal 1 — Boston Children's Hospital
-HOSPITAL_NODE=BCH uvicorn main:app --port 8001 --reload
+HOSPITAL_NODE=BCH uvicorn main:app --app-dir services/hospital-node --port 8001 --reload
 
 # Terminal 2 — Massachusetts General Hospital
-HOSPITAL_NODE=MGH uvicorn main:app --port 8002 --reload
+HOSPITAL_NODE=MGH uvicorn main:app --app-dir services/hospital-node --port 8002 --reload
 
 # Terminal 3 — Brigham and Women's Hospital
-HOSPITAL_NODE=BWH uvicorn main:app --port 8003 --reload
+HOSPITAL_NODE=BWH uvicorn main:app --app-dir services/hospital-node --port 8003 --reload
 ```
 
 Verify all three are running:
@@ -202,6 +202,40 @@ curl http://localhost:8003/health
 ```
 
 Or just open each URL in your browser.
+
+---
+
+## 8. Start the Provider Gateway
+
+The coordinator talks to a Provider Gateway, not directly to the hospital API. Run one gateway per provider on its own port:
+
+```bash
+# Terminal 1: source hospital node
+HOSPITAL_NODE=BCH uvicorn main:app --app-dir services/hospital-node --port 8001
+
+# Terminal 2: install and start the gateway
+python -m pip install .
+PROVIDER_CODE=BCH \
+NODE_URL=http://localhost:8001 \
+DATABASE_PATH=./data/gateway/bch_gateway.db \
+TOKEN_SECRET=local-development-secret \
+SERVICE_API_KEY=coordinator-shared-key \
+GATEWAY_PORT=8101 \
+OPENMED_FORCE_FALLBACK=1 \
+provider-gateway
+```
+
+Build its local search index and verify the coordinator-facing API:
+
+```bash
+curl -X POST http://localhost:8101/refresh \
+  -H "X-API-Key: coordinator-shared-key"
+
+curl http://localhost:8101/capabilities \
+  -H "X-API-Key: coordinator-shared-key"
+```
+
+For a container setup, copy `.env.example` to `.env`, replace the secrets, then run `docker compose up --build`. See [DEMO.md](DEMO.md) for the full one-command local demo, port table, and coordinator request examples.
 
 ---
 
@@ -228,13 +262,13 @@ pip install -r requirements.txt
 ### Port already in use
 If you see `Address already in use`, another process is using that port. Either stop it or use a different port:
 ```bash
-HOSPITAL_NODE=BCH uvicorn main:app --port 9001 --reload
+HOSPITAL_NODE=BCH uvicorn main:app --app-dir services/hospital-node --port 9001 --reload
 ```
 
 ### Windows: `uvicorn` not recognized
 Make sure your virtual environment is activated (you should see `(venv)` in your prompt). If you installed Python to a custom path, you may need:
 ```bash
-python -m uvicorn main:app --port 8001 --reload
+python -m uvicorn main:app --app-dir services/hospital-node --port 8001 --reload
 ```
 
 ---
@@ -249,5 +283,7 @@ Before the hackathon, confirm you can check all of these:
 - [ ] Repository cloned
 - [ ] `pip install -r requirements.txt` completed without errors
 - [ ] `http://localhost:8001/health` returns `{"status": "healthy", "node": "BCH"}`
+- [ ] `http://localhost:8101/health` reports the BCH Provider Gateway as healthy
+- [ ] Authenticated `GET /capabilities` succeeds with the coordinator API key
 
 **You're ready to hack!**
