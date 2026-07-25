@@ -28,6 +28,10 @@ async def lifespan(_: FastAPI):
         for node, port in NODES.items():
             env = os.environ.copy()
             env["HOSPITAL_NODE"] = node
+            # Repo root exposes `shared`; node modules come from --app-dir.
+            env["PYTHONPATH"] = os.pathsep.join(
+                p for p in (str(REPO_ROOT), env.get("PYTHONPATH", "")) if p
+            )
             processes.append(
                 subprocess.Popen(
                     [

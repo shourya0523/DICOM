@@ -17,13 +17,15 @@
 
 ```bash
 pip install -r requirements.txt
-# Terminal A
+# Terminal A — BCH/MGH/BWH hospital nodes on :8001-8003
 ./scripts/start_nodes.sh
-# Terminal B
+# Terminal B — portal UI on :8010
 ./scripts/start_portal.sh
 # Terminal C
 ./tests/contract_smoke.sh
 ```
+
+Or in containers: `docker compose --profile portal up --build` (see below).
 
 ## Known gaps (own these in the pitch)
 
@@ -52,39 +54,47 @@ Everything needed to run the federated imaging demo from one laptop, from one fo
 .
 ├── compose.yml                  # local demo stack (add more services here)
 ├── .env.example                 # copy to .env before starting
-├── Dockerfile                   # multi-stage: gateway + hospital-node
+├── Dockerfile                   # multi-stage: gateway + hospital-node + portal
 ├── pyproject.toml               # installs provider_gateway from services/provider-gateway
 ├── DEMO.md / README.md
 ├── services/
-│   ├── hospital-node/           # dumb hospital API (main.py, models.py)
+│   ├── hospital-node/           # hospital edge app: main.py, models.py, search.py, auth/
+│   ├── portal/portal/           # researcher-facing portal (platform SSO + fan-out)
 │   └── provider-gateway/
 │       └── provider_gateway/    # installable gateway package
+├── shared/                      # frozen cross-service contracts + vocab
 ├── data/
 │   ├── hospitals/               # bch/mgh/bwh_data.json (committed)
 │   ├── gateway/                 # SQLite state (generated, gitignored)
 │   └── reports/                 # accuracy/benchmark output (generated, gitignored)
-├── tests/                       # pytest suite + eval/benchmark scripts
+├── scripts/                     # start_nodes.sh, start_portal.sh
+├── tests/                       # pytest suite + eval/benchmark/contract-smoke scripts
 └── tools/
-    ├── run_local_demo.sh        # no-Docker demo launcher
+    ├── run_local_demo.sh        # no-Docker node+gateway launcher
     └── dev_explorer.py          # runs all three nodes on :9001-9003
 ```
+
+Every service imports `shared` from the repo root, so run commands from the repo root
+(the launcher scripts and the images set `PYTHONPATH` for you).
 
 ## Ports
 
 The coordinator only ever calls the **gateway** port.
 
-| Provider | Gateway (coordinator calls this) | Hospital node |
+| Service | Port | Notes |
 | --- | --- | --- |
-| BCH | `8101` | `8001` |
-| MGH | `8102` | `8002` |
-| BWH | `8103` | `8003` |
+| BCH gateway / node | `8101` / `8001` | coordinator entry point / raw node |
+| MGH gateway / node | `8102` / `8002` | |
+| BWH gateway / node | `8103` / `8003` | |
+| Portal UI | `8010` | researcher-facing demo UI |
 
 ## Option A — Docker Compose (recommended)
 
 ```bash
 cp .env.example .env
 # edit .env: set TOKEN_SECRET and SERVICE_API_KEY
-docker compose up --build
+docker compose up --build                    # BCH node :8001 + provider gateway :8101
+docker compose --profile portal up --build   # + MGH/BWH nodes and the portal on :8010
 ```
 
 In a second terminal:
@@ -150,17 +160,25 @@ frozen coordinator-facing contract.
 
 4. Gateway console UI: <http://localhost:8101/>
 
+When the hospital node enforces SSO, the gateway logs in as its configured service account
+(`NODE_SERVICE_ID` / `NODE_SERVICE_ORG` / `NODE_SERVICE_IRB_APPROVED`) before ingesting.
+That identity must be on the node's allowlist and IRB-approved, otherwise `/refresh` returns
+records without PII and skips them.
+
 ## Adding a service later
 
-1. Create `services/<name>/` (its own `Dockerfile` if it needs a different base).
+1. Create `services/<name>/` (add a stage to the root `Dockerfile`, or give it its own).
 2. Uncomment/extend the `coordinator` placeholder block in `compose.yml`.
 3. Point it at `http://provider-gateway:8101` inside the compose network, or
    `http://localhost:8101` from the host.
+4. Put anything two services must agree on in `shared/` — it is already on `PYTHONPATH`
+   and copied into every image.
 
 ## Tests
 
 ```bash
 OPENMED_FORCE_FALLBACK=1 python -m pytest
+python tests/contract_smoke.py                              # needs nodes + portal running
 OPENMED_FORCE_FALLBACK=1 python tests/eval_accuracy.py      # -> data/reports/
 OPENMED_FORCE_FALLBACK=1 python tests/benchmark_gateway.py  # -> data/reports/
 ```

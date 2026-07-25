@@ -158,6 +158,8 @@ class Settings:
     cohort_ttl_hours: int = 72
     http_timeout_seconds: float = 30.0
     bootstrap_orgs: list[dict[str, Any]] = field(default_factory=lambda: list(DEFAULT_BOOTSTRAP_ORGS))
+    # Identity the gateway presents to its own hospital node when that node enforces SSO.
+    node_service_account: dict[str, Any] | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -181,6 +183,12 @@ class Settings:
         cohort_ttl_hours = int(os.environ.get("COHORT_TTL_HOURS", "72"))
         http_timeout_seconds = float(os.environ.get("HTTP_TIMEOUT_SECONDS", "30"))
 
+        node_service_account = {
+            "researcher_id": os.environ.get("NODE_SERVICE_ID", "jorgenson@harvard.edu"),
+            "org": os.environ.get("NODE_SERVICE_ORG", "Harvard University"),
+            "irb_approved": os.environ.get("NODE_SERVICE_IRB_APPROVED", "1") not in ("0", "false", "False"),
+        }
+
         bootstrap_raw = os.environ.get("BOOTSTRAP_ORGS_JSON")
         if bootstrap_raw:
             bootstrap_orgs = json.loads(bootstrap_raw)
@@ -197,6 +205,7 @@ class Settings:
             cohort_ttl_hours=cohort_ttl_hours,
             http_timeout_seconds=http_timeout_seconds,
             bootstrap_orgs=bootstrap_orgs,
+            node_service_account=node_service_account,
         )
 
 

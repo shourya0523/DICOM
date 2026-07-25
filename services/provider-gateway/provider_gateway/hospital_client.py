@@ -20,9 +20,42 @@ class HospitalNodeError(Exception):
 
 
 class HospitalClient:
-    def __init__(self, node_url: str, timeout_seconds: float = 30.0):
+    def __init__(
+        self,
+        node_url: str,
+        timeout_seconds: float = 30.0,
+        service_account: dict[str, Any] | None = None,
+    ):
         self.node_url = node_url.rstrip("/")
         self.timeout = timeout_seconds
+        self.service_account = service_account
+        self._token: str | None = None
+
+    def _login(self, client: httpx.Client) -> str | None:
+        """Exchange the node service account for a Bearer token, if the node has SSO."""
+        if not self.service_account:
+            return None
+        response = client.post(f"{self.node_url}/auth/login", json=self.service_account)
+        if response.status_code == 404:
+            return None
+        if response.status_code >= 400:
+            raise HospitalNodeError(
+                f"Hospital node rejected the gateway service account (HTTP {response.status_code})"
+            )
+        self._token = response.json().get("access_token")
+        return self._token
+
+    def _get(self, client: httpx.Client, path: str) -> httpx.Response:
+        """GET path, authenticating only if the node demands it."""
+        headers = {"Authorization": f"Bearer {self._token}"} if self._token else {}
+        response = client.get(f"{self.node_url}{path}", headers=headers)
+        if response.status_code in (401, 403):
+            if self._login(client):
+                response = client.get(
+                    f"{self.node_url}{path}",
+                    headers={"Authorization": f"Bearer {self._token}"},
+                )
+        return response
 
     def health(self) -> dict[str, Any]:
         try:
@@ -36,7 +69,7 @@ class HospitalClient:
     def fetch_studies(self) -> list[StudyRecord]:
         try:
             with httpx.Client(timeout=self.timeout) as client:
-                response = client.get(f"{self.node_url}/api/studies")
+                response = self._get(client, "/api/studies")
                 response.raise_for_status()
                 payload = response.json()
         except httpx.HTTPError as exc:
@@ -57,7 +90,7 @@ class HospitalClient:
     def fetch_study(self, study_id: str) -> StudyRecord:
         try:
             with httpx.Client(timeout=self.timeout) as client:
-                response = client.get(f"{self.node_url}/api/studies/{study_id}")
+                response = self._get(client, f"/api/studies/{study_id}")
                 if response.status_code == 404:
                     raise HospitalNodeError(f"Study not found")
                 response.raise_for_status()

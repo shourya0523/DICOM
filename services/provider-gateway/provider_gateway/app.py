@@ -58,7 +58,11 @@ def get_settings() -> Settings:
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     repository = build_repository(settings)
-    hospital_client = HospitalClient(settings.node_url, settings.http_timeout_seconds)
+    hospital_client = HospitalClient(
+        settings.node_url,
+        settings.http_timeout_seconds,
+        service_account=settings.node_service_account,
+    )
     openmed_adapter = OpenMedAdapter()
     pipeline = IngestionPipeline(settings, repository, hospital_client, openmed_adapter)
     search_service = SearchService(repository)

@@ -34,7 +34,8 @@ TOKEN_SECRET="${TOKEN_SECRET:-local-secret}"
 SERVICE_API_KEY="${SERVICE_API_KEY:-demo-key}"
 OPENMED_FORCE_FALLBACK="${OPENMED_FORCE_FALLBACK:-1}"
 
-export PYTHONPATH="$REPO_ROOT/services/provider-gateway${PYTHONPATH:+:$PYTHONPATH}"
+# Repo root exposes `shared`; the gateway package lives in its own service folder.
+export PYTHONPATH="$REPO_ROOT:$REPO_ROOT/services/provider-gateway${PYTHONPATH:+:$PYTHONPATH}"
 
 mkdir -p data/gateway
 
