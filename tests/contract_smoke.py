@@ -142,6 +142,62 @@ def main() -> int:
         bch_gw.get("status") == "complete" and bool(bch_gw.get("count_band")),
     )
 
+    code, preview = req(
+        "POST",
+        f"{PORTAL}/gateway/preview",
+        {"q": "pediatric brain MRI hydrocephalus"},
+        platform_token,
+    )
+    check(
+        "Gateway preview maps NL",
+        code == 200
+        and (preview.get("gateway_request") or {}).get("filters", {}).get("body_parts") == ["BRAIN"],
+    )
+
+    code, structured = req(
+        "POST",
+        f"{PORTAL}/search",
+        {
+            "researcher": HARVARD,
+            "filters": {
+                "patient_age_min": 0,
+                "patient_age_max": 21,
+                "gestational_age_min_weeks": None,
+                "gestational_age_max_weeks": None,
+                "modality": "MR",
+                "body_parts": ["BRAIN"],
+                "concepts": [{"code": "HYDROCEPHALUS", "assertion": "PRESENT"}],
+            },
+        },
+        platform_token,
+    )
+    s_req = (structured.get("gateway_request") or {}).get("filters") or {}
+    concepts = s_req.get("concepts") or []
+    check(
+        "Structured filters search",
+        code == 200
+        and s_req.get("modality") == "MR"
+        and s_req.get("body_parts") == ["BRAIN"]
+        and concepts
+        and concepts[0].get("code") == "HYDROCEPHALUS",
+    )
+
+    code, fetal = req(
+        "POST",
+        f"{PORTAL}/gateway/preview",
+        {"q": "fetal MRI 20-24 weeks ventriculomegaly"},
+        platform_token,
+    )
+    f_filters = (fetal.get("gateway_request") or {}).get("filters") or {}
+    check(
+        "Gateway preview maps gestational age",
+        code == 200
+        and f_filters.get("body_parts") == ["FETAL"]
+        and f_filters.get("gestational_age_min_weeks") == 20
+        and f_filters.get("gestational_age_max_weeks") == 24
+        and (f_filters.get("concepts") or [{}])[0].get("code") == "VENTRICULOMEGALY",
+    )
+
     code, portal_ret = req(
         "POST",
         f"{PORTAL}/retrieve",

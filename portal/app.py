@@ -1,4 +1,4 @@
-"""Central portal — platform SSO + gateway fan-out; keeps existing dashboard UI."""
+"""Central portal — platform SSO + gateway fan-out; product UI + /lab test dashboard."""
 
 from __future__ import annotations
 
@@ -13,9 +13,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from portal.gateway import (
     build_gateway_request,
+    build_gateway_request_from_filters,
     call_gateway_search,
     gateway_to_dashboard_card,
     gateway_urls,
@@ -53,7 +55,7 @@ def node_urls() -> dict[str, str]:
 app = FastAPI(
     title="Federated DICOM Search Portal",
     description="Platform SSO + hospital gateway fan-out (gateway owns hospital SSO/PII).",
-    version="2.0.0",
+    version="3.0.0",
 )
 
 app.add_middleware(
@@ -113,6 +115,10 @@ async def _login(client: httpx.AsyncClient, base: str, researcher: ResearcherPro
     return resp.json()
 
 
+class PreviewRequest(BaseModel):
+    q: str
+
+
 @app.get("/health")
 def health():
     return {
@@ -142,12 +148,31 @@ def profiles():
     return {key: p.model_dump() for key, p in DEMO_PROFILES.items()}
 
 
+@app.post("/gateway/preview")
+def gateway_preview(req: PreviewRequest, claims: dict = Depends(require_platform)):
+    """Map NL → gateway filters without fan-out (for UI pre-fill)."""
+    gateway_req = build_gateway_request(req.q)
+    return {
+        "gateway_request": gateway_req,
+        "expanded_terms": expand(req.q),
+        "platform_user": claims.get("sub"),
+    }
+
+
 @app.post("/search")
 async def search(req: PortalSearchRequest, claims: dict = Depends(require_platform)):
-    expanded = expand(req.q)
-    gateway_req = build_gateway_request(req.q)
-    urls = gateway_urls()
+    if req.filters is not None:
+        gateway_req = build_gateway_request_from_filters(req.filters.model_dump())
+        q_out = req.q or ""
+        expanded = expand(q_out) if q_out else []
+    elif req.q:
+        gateway_req = build_gateway_request(req.q)
+        q_out = req.q
+        expanded = expand(req.q)
+    else:
+        raise HTTPException(status_code=400, detail="provide q and/or filters")
 
+    urls = gateway_urls()
     async with httpx.AsyncClient(timeout=30.0) as client:
         tasks = [
             call_gateway_search(
@@ -163,7 +188,7 @@ async def search(req: PortalSearchRequest, claims: dict = Depends(require_platfo
 
     cards = [gateway_to_dashboard_card(g) for g in gateway_results]
     payload = _apply_portal_suppression(cards)
-    payload["q"] = req.q
+    payload["q"] = q_out
     payload["expanded_terms"] = expanded
     payload["researcher"] = req.researcher.model_dump()
     payload["platform_user"] = claims.get("sub")
@@ -217,7 +242,12 @@ async def proxy_audit(node: str, claims: dict = Depends(require_platform)):
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "app" / "index.html")
+
+
+@app.get("/lab")
+def lab_index():
+    return FileResponse(STATIC_DIR / "lab" / "index.html")
 
 
 if STATIC_DIR.is_dir():

@@ -19,7 +19,8 @@ export PYTHONPATH="$PWD"
 ./scripts/start_portal.sh
 ```
 
-- Portal UI: http://127.0.0.1:8010
+- Portal UI: http://127.0.0.1:8010 (Warm Sand product UI)
+- Lab / test UI: http://127.0.0.1:8010/lab (previous dark dashboard)
 - BCH / MGH / BWH: `:8001` / `:8002` / `:8003`
 - Contract smoke: `python3 tests/contract_smoke.py`
 

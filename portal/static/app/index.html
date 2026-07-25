@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Federated Imaging Search</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/app/styles.css" />
+</head>
+<body>
+  <div class="bg-wash bg-wash-a" aria-hidden="true"></div>
+  <div class="bg-wash bg-wash-b" aria-hidden="true"></div>
+
+  <div id="login-gate" class="login-gate">
+    <div class="surface login-card">
+      <p class="eyebrow">Platform access</p>
+      <h1 class="display">Sign in</h1>
+      <p class="lede">Unlock the federated search portal. Each hospital gateway runs its own SSO separately.</p>
+
+      <div class="auth-path">
+        <p class="path-label">Institution SSO</p>
+        <div class="chip-row" id="login-presets" role="group" aria-label="Institution identity providers"></div>
+      </div>
+
+      <div class="path-divider" role="separator">
+        <span>Or continue with email</span>
+      </div>
+
+      <div class="field-grid">
+        <label class="field">
+          <span class="field-label">Email</span>
+          <input id="login-email" class="input" type="email" placeholder="you@harvard.edu" autocomplete="username" />
+        </label>
+        <label class="field">
+          <span class="field-label">Organization</span>
+          <input id="login-org" class="input" type="text" placeholder="Harvard University" autocomplete="organization" />
+        </label>
+      </div>
+      <p id="login-error" class="error" hidden></p>
+      <button id="login-btn" class="btn primary" type="button">Continue</button>
+      <p class="hint"><a href="/lab">Open test lab UI</a> · demo emails: harvard / mit / neu / bu</p>
+    </div>
+  </div>
+
+  <div id="app-shell" class="app-shell" hidden>
+    <header class="topbar surface">
+      <div>
+        <p class="eyebrow">Federated imaging</p>
+        <h1 class="display">Search across hospitals</h1>
+      </div>
+      <div class="topbar-actions">
+        <span id="session-label" class="session-pill mono"></span>
+        <a class="btn ghost" href="/lab">Lab</a>
+        <button id="logout-btn" class="btn ghost" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="surface panel compose">
+        <h2 class="display panel-title">Ask the coordinator</h2>
+        <p class="sub">Describe the cohort. The coordinator decodes your query, then finds which hospitals hold matching imaging data.</p>
+
+        <div class="discovery" aria-label="Plain language discovery">
+          <label class="field">
+            <span class="field-label">Search query</span>
+            <div class="inline-row discovery-row">
+              <input id="nl-query" class="input discovery-input" type="text" placeholder="fetal MRI 20-24 weeks ventriculomegaly" />
+              <button id="suggest-btn" class="btn soft" type="button">Decode</button>
+            </div>
+          </label>
+        </div>
+
+        <div class="decoded-panel" id="decoded-panel">
+          <div class="decoded-head">
+            <h3 class="section-title">Decoded filters</h3>
+            <span class="meta">Review before searching</span>
+          </div>
+          <div class="field-grid filters" aria-label="Decoded structured filters">
+            <label class="field">
+              <span class="field-label">Patient age min</span>
+              <input id="age-min" class="input mono" type="number" min="0" max="120" placeholder="—" />
+            </label>
+            <label class="field">
+              <span class="field-label">Patient age max</span>
+              <input id="age-max" class="input mono" type="number" min="0" max="120" placeholder="—" />
+            </label>
+            <label class="field">
+              <span class="field-label">Gestational age min (weeks)</span>
+              <input id="ga-min" class="input mono" type="number" min="0" max="45" placeholder="—" />
+            </label>
+            <label class="field">
+              <span class="field-label">Gestational age max (weeks)</span>
+              <input id="ga-max" class="input mono" type="number" min="0" max="45" placeholder="—" />
+            </label>
+            <label class="field">
+              <span class="field-label">Modality</span>
+              <select id="modality" class="input">
+                <option value="">Any</option>
+                <option value="MR">MR</option>
+                <option value="CT">CT</option>
+                <option value="US">US</option>
+                <option value="XR">XR</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">Body parts</span>
+              <select id="body-part" class="input">
+                <option value="">Any</option>
+                <option value="BRAIN">BRAIN</option>
+                <option value="HEART">HEART</option>
+                <option value="FETAL">FETAL</option>
+              </select>
+            </label>
+            <label class="field span-2">
+              <span class="field-label">Concept</span>
+              <select id="concept" class="input mono">
+                <option value="">Any</option>
+                <option value="HYDROCEPHALUS">HYDROCEPHALUS</option>
+                <option value="VENTRICULOMEGALY">VENTRICULOMEGALY</option>
+                <option value="INTRACRANIAL_HEMORRHAGE">INTRACRANIAL_HEMORRHAGE</option>
+                <option value="ISCHEMIC_INFARCT">ISCHEMIC_INFARCT</option>
+                <option value="BRAIN_MASS">BRAIN_MASS</option>
+                <option value="CHIARI">CHIARI</option>
+                <option value="EDEMA">EDEMA</option>
+                <option value="CARDIOMYOPATHY">CARDIOMYOPATHY</option>
+                <option value="MYOCARDIAL_FIBROSIS">MYOCARDIAL_FIBROSIS</option>
+                <option value="CONGENITAL_HEART_DISEASE">CONGENITAL_HEART_DISEASE</option>
+                <option value="NEURAL_TUBE_DEFECT">NEURAL_TUBE_DEFECT</option>
+                <option value="SHUNT">SHUNT</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <button id="search-btn" class="btn primary wide" type="button">Find hospitals</button>
+      </section>
+
+      <section class="results-col">
+        <div class="surface panel" id="results-panel">
+          <h2 class="display panel-title">Hospitals</h2>
+          <p id="aggregate" class="sub">Decode a query and search to see which sites hold matching data.</p>
+          <div id="node-results" class="result-grid">
+            <div class="empty-state" id="results-empty">
+              <p class="empty-title">No hospitals yet</p>
+              <p class="empty-copy">Ask the coordinator with a plain-language query. Matching hospitals will appear here — click one for details.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="surface panel detail-panel" id="detail-panel" hidden>
+          <div class="detail-head">
+            <div>
+              <p class="eyebrow" id="detail-eyebrow">Hospital detail</p>
+              <h2 class="display panel-title" id="detail-title">—</h2>
+            </div>
+            <button id="detail-close" class="btn ghost" type="button">Close</button>
+          </div>
+          <div id="detail-body" class="detail-body"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/app/app.js"></script>
+</body>
+</html>

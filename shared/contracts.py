@@ -66,9 +66,29 @@ class RetrieveResponse(BaseModel):
     reason: Optional[str] = None
 
 
+class GatewayConcept(BaseModel):
+    code: str
+    assertion: Literal[
+        "PRESENT", "NEGATED", "UNCERTAIN", "HISTORICAL", "FAMILY_HISTORY"
+    ] = "PRESENT"
+
+
+class GatewayFilters(BaseModel):
+    """Teammate gateway search filters (nullable ages; body_parts list; concepts[])."""
+
+    patient_age_min: Optional[int] = None
+    patient_age_max: Optional[int] = None
+    gestational_age_min_weeks: Optional[int] = None
+    gestational_age_max_weeks: Optional[int] = None
+    modality: Optional[str] = None
+    body_parts: list[str] = Field(default_factory=list)
+    concepts: list[GatewayConcept] = Field(default_factory=list)
+
+
 class PortalSearchRequest(BaseModel):
-    q: str
     researcher: ResearcherProfile
+    q: Optional[str] = None
+    filters: Optional[GatewayFilters] = None
 
 
 class PortalRetrieveRequest(BaseModel):

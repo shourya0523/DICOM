@@ -18,10 +18,16 @@ import httpx
 
 from portal.synonyms import expand
 from shared.contracts import NODE_PORTS, ResearcherProfile
+from shared.vocab import VOCAB
 
 _query_seq = itertools.count(1001)
 
-# Optional real gateway bases, e.g. GATEWAY_BCH_URL=http://127.0.0.1:9001
+_BODY_ALIASES = {k.upper(): v for k, v in VOCAB["body_parts"]["aliases"].items()}
+_MOD_ALIASES = {k.upper().replace("-", ""): v for k, v in VOCAB["modalities"]["aliases"].items()}
+_CONCEPTS = list(VOCAB["concepts"])
+_ASSERTIONS = set(VOCAB["assertions"])
+
+
 def gateway_urls() -> dict[str, str]:
     urls: dict[str, str] = {}
     for name, port in NODE_PORTS.items():
@@ -29,7 +35,6 @@ def gateway_urls() -> dict[str, str]:
         if env:
             urls[name] = env.rstrip("/")
         else:
-            # Fallback: treat local hospital node as gateway mock backend
             urls[name] = os.environ.get(f"{name}_URL", f"http://127.0.0.1:{port}").rstrip("/")
     return urls
 
@@ -43,67 +48,169 @@ def next_query_id() -> str:
     return f"q-{next(_query_seq)}"
 
 
+def _normalize_modality(raw: Any) -> str | None:
+    if raw is None or raw == "":
+        return None
+    key = str(raw).strip().upper().replace("-", "").replace(" ", "")
+    return _MOD_ALIASES.get(key) or (key if key in VOCAB["modalities"]["canonical"] else None)
+
+
+def _normalize_body_parts(raw: Any) -> list[str]:
+    """Accept body_parts list or legacy body_part string → canonical list."""
+    items: list[Any]
+    if raw is None or raw == "":
+        items = []
+    elif isinstance(raw, list):
+        items = raw
+    else:
+        items = [raw]
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if item is None or item == "":
+            continue
+        key = str(item).strip().upper().replace("-", "_")
+        canon = _BODY_ALIASES.get(key) or _BODY_ALIASES.get(key.replace("_", ""))
+        if not canon and key in VOCAB["body_parts"]["canonical"]:
+            canon = key
+        if canon and canon not in seen:
+            seen.add(canon)
+            out.append(canon)
+    return out
+
+
+def _concept_code(raw: str) -> str:
+    """Normalize a free-text concept into an uppercase gateway code."""
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", raw.strip()).strip("_").upper()
+    if cleaned in _CONCEPTS:
+        return cleaned
+    # fuzzy: match vocab by removing underscores
+    compact = cleaned.replace("_", "")
+    for code in _CONCEPTS:
+        if code.replace("_", "") == compact:
+            return code
+    return cleaned
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_gestational_weeks(q: str) -> tuple[int | None, int | None]:
+    """Extract gestational age weeks from phrases like '20-24 weeks' or '22 weeks'."""
+    range_match = re.search(
+        r"(\d{1,2})\s*[-–to]+\s*(\d{1,2})\s*(?:weeks?|wks?|ga)\b",
+        q,
+        re.IGNORECASE,
+    )
+    if range_match:
+        lo, hi = int(range_match.group(1)), int(range_match.group(2))
+        return (min(lo, hi), max(lo, hi))
+    single = re.search(r"\b(?:ga|gestational(?:\s+age)?)\s*[:=]?\s*(\d{1,2})\b", q, re.IGNORECASE)
+    if single:
+        w = int(single.group(1))
+        return (w, w)
+    weeks = re.search(r"\b(\d{1,2})\s*(?:weeks?|wks?)\b", q, re.IGNORECASE)
+    if weeks and re.search(r"gestational|fetal|foetal|fetus|ga\b", q, re.IGNORECASE):
+        w = int(weeks.group(1))
+        return (w, w)
+    return (None, None)
+
+
+def _match_concepts(q: str) -> list[dict[str, str]]:
+    """Find known concept codes in the query (longest match first)."""
+    upper = q.upper()
+    # Also search underscore-as-space forms
+    found: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for code in sorted(_CONCEPTS, key=len, reverse=True):
+        variants = {
+            code,
+            code.replace("_", " "),
+            code.replace("_", "-"),
+        }
+        if any(v in upper for v in variants):
+            if code not in seen:
+                seen.add(code)
+                found.append({"code": code, "assertion": "PRESENT"})
+    if found:
+        return found
+    # Fall back: first non-structural token mapped via _concept_code
+    structural = {
+        "pediatric", "paediatric", "child", "neonatal", "gestational", "age",
+        "weeks", "week", "wks", "ga", "magnetic", "resonance", "ultrasound",
+        "xray", "with", "without", "and", "the", "for", "of",
+    }
+    for raw in re.findall(r"[A-Za-z][A-Za-z\-]+", q):
+        if raw.lower() in structural or len(raw) < 3:
+            continue
+        code = _concept_code(raw)
+        if code in _CONCEPTS:
+            return [{"code": code, "assertion": "PRESENT"}]
+    return []
+
+
+def _match_body_parts(q: str, tokens: set[str]) -> list[str]:
+    parts: list[str] = []
+    seen: set[str] = set()
+    # Alias scan on expanded tokens
+    for tok in tokens:
+        canon = _BODY_ALIASES.get(tok.upper())
+        if canon and canon not in seen:
+            seen.add(canon)
+            parts.append(canon)
+    # Phrase aliases in raw query
+    upper = q.upper()
+    for alias, canon in _BODY_ALIASES.items():
+        if alias in upper and canon not in seen:
+            seen.add(canon)
+            parts.append(canon)
+    return parts
+
+
+def _match_modality(tokens: set[str], q: str) -> str | None:
+    upper_tokens = {t.upper().replace("-", "") for t in tokens}
+    for alias, canon in _MOD_ALIASES.items():
+        if alias.replace("-", "") in upper_tokens:
+            return canon
+    if "MAGNETIC" in upper_tokens and "RESONANCE" in upper_tokens:
+        return "MR"
+    return None
+
+
 def nl_to_filters(q: str) -> dict[str, Any]:
-    """Map natural language (+ synonyms) into teammate gateway filters."""
+    """Map natural language (+ vocab) into teammate gateway filters."""
     terms = [t.lower() for t in expand(q)]
     joined = " ".join(terms)
     tokens = set(re.findall(r"[a-z0-9]+", joined))
 
-    age_min, age_max = 0, 120
+    patient_age_min: int | None = None
+    patient_age_max: int | None = None
     if tokens & {"pediatric", "paediatric", "child", "neonatal"}:
-        age_min, age_max = 0, 21
+        patient_age_min, patient_age_max = 0, 21
 
-    modality = None
-    if tokens & {"mri", "mr"} or "magnetic" in tokens:
-        modality = "MR"
+    ga_min, ga_max = _parse_gestational_weeks(q)
+    body_parts = _match_body_parts(q, tokens)
+    if ga_min is not None and "FETAL" not in body_parts:
+        body_parts = ["FETAL", *body_parts]
 
-    body_part = None
-    if tokens & {"brain", "cerebral", "neuro"}:
-        body_part = "BRAIN"
-    elif tokens & {"heart", "cardiac"}:
-        body_part = "HEART"
-    elif tokens & {"fetal", "foetal"}:
-        body_part = "FETAL"
+    modality = _match_modality(tokens, q)
+    concepts = _match_concepts(q)
 
-    # Prefer a clinical concept over structural tokens
-    structural = {
-        "pediatric",
-        "paediatric",
-        "child",
-        "neonatal",
-        "brain",
-        "cerebral",
-        "neuro",
-        "heart",
-        "cardiac",
-        "fetal",
-        "foetal",
-        "mri",
-        "mr",
-        "magnetic",
-        "resonance",
+    return {
+        "patient_age_min": patient_age_min,
+        "patient_age_max": patient_age_max,
+        "gestational_age_min_weeks": ga_min,
+        "gestational_age_max_weeks": ga_max,
+        "modality": modality,
+        "body_parts": body_parts,
+        "concepts": concepts,
     }
-    concept_candidates = [t for t in expand(q) if t.lower() not in structural and " " not in t]
-    concept = None
-    # Prefer known diagnosis-like terms from original query order
-    for raw in re.findall(r"[A-Za-z][A-Za-z\-]+", q):
-        if raw.lower() not in structural and len(raw) > 2:
-            concept = raw.lower()
-            break
-    if not concept and concept_candidates:
-        concept = concept_candidates[0].lower()
-
-    filters: dict[str, Any] = {
-        "age_min": age_min,
-        "age_max": age_max,
-    }
-    if modality:
-        filters["modality"] = modality
-    if body_part:
-        filters["body_part"] = body_part
-    if concept:
-        filters["concept"] = concept
-    return filters
 
 
 def build_gateway_request(q: str, query_id: str | None = None) -> dict[str, Any]:
@@ -111,6 +218,76 @@ def build_gateway_request(q: str, query_id: str | None = None) -> dict[str, Any]
         "query_id": query_id or next_query_id(),
         "filters": nl_to_filters(q),
     }
+
+
+def normalize_concepts(raw: Any) -> list[dict[str, str]]:
+    """Accept concepts[] or legacy concept string from UI/API."""
+    if isinstance(raw, list):
+        out: list[dict[str, str]] = []
+        for item in raw:
+            if isinstance(item, dict) and item.get("code"):
+                assertion = str(item.get("assertion") or "PRESENT").upper()
+                if assertion not in _ASSERTIONS:
+                    assertion = "PRESENT"
+                out.append({"code": _concept_code(str(item["code"])), "assertion": assertion})
+            elif isinstance(item, str) and item.strip():
+                out.append({"code": _concept_code(item), "assertion": "PRESENT"})
+        return out
+    if isinstance(raw, str) and raw.strip():
+        return [{"code": _concept_code(raw), "assertion": "PRESENT"}]
+    return []
+
+
+def build_gateway_request_from_filters(
+    filters: dict[str, Any],
+    query_id: str | None = None,
+) -> dict[str, Any]:
+    """Build teammate gateway payload from structured UI filters."""
+    patient_min = filters.get("patient_age_min", filters.get("age_min"))
+    patient_max = filters.get("patient_age_max", filters.get("age_max"))
+    concepts = normalize_concepts(filters.get("concepts", filters.get("concept")))
+    body_raw = filters.get("body_parts", filters.get("body_part"))
+
+    cleaned: dict[str, Any] = {
+        "patient_age_min": _optional_int(patient_min),
+        "patient_age_max": _optional_int(patient_max),
+        "gestational_age_min_weeks": _optional_int(filters.get("gestational_age_min_weeks")),
+        "gestational_age_max_weeks": _optional_int(filters.get("gestational_age_max_weeks")),
+        "modality": _normalize_modality(filters.get("modality")),
+        "body_parts": _normalize_body_parts(body_raw),
+        "concepts": concepts,
+    }
+    return {
+        "query_id": query_id or next_query_id(),
+        "filters": cleaned,
+    }
+
+
+def filters_to_nl(filters: dict[str, Any]) -> str:
+    """Rebuild a local-node NL query from teammate filters."""
+    parts: list[str] = []
+    pmax = filters.get("patient_age_max")
+    if pmax is not None and _optional_int(pmax) is not None and int(pmax) <= 21:
+        parts.append("pediatric")
+    ga_min = filters.get("gestational_age_min_weeks")
+    ga_max = filters.get("gestational_age_max_weeks")
+    if ga_min is not None or ga_max is not None:
+        lo = ga_min if ga_min is not None else ga_max
+        hi = ga_max if ga_max is not None else ga_min
+        if lo == hi:
+            parts.append(f"{lo} weeks gestational")
+        else:
+            parts.append(f"{lo}-{hi} weeks gestational")
+    for bp in _normalize_body_parts(filters.get("body_parts", filters.get("body_part"))):
+        parts.append(bp.lower())
+    mod = _normalize_modality(filters.get("modality"))
+    if mod == "MR":
+        parts.append("MRI")
+    elif mod:
+        parts.append(mod)
+    for c in normalize_concepts(filters.get("concepts", filters.get("concept"))):
+        parts.append(c["code"].replace("_", " ").lower())
+    return " ".join(parts) or "brain"
 
 
 def count_band(n: int | None) -> str | None:
@@ -293,18 +470,8 @@ async def call_gateway_search(
                 },
             )
 
-        # Rebuild NL query from filters for the local matcher
         filters = gateway_req.get("filters") or {}
-        parts = []
-        if filters.get("age_max") is not None and filters.get("age_max") <= 21:
-            parts.append("pediatric")
-        if filters.get("body_part"):
-            parts.append(str(filters["body_part"]).lower())
-        if filters.get("modality") == "MR":
-            parts.append("MRI")
-        if filters.get("concept"):
-            parts.append(str(filters["concept"]))
-        q = " ".join(parts) or "brain"
+        q = filters_to_nl(filters)
 
         resp = await client.post(
             f"{base}/query",

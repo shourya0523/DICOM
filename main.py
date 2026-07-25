@@ -221,7 +221,7 @@ def retrieve(
         )
 
     for study in studies:
-        if study.StudyID == study_id:
+        if study.StudyID == study_id or study.StudyInstanceUID == study_id:
             audit.record(
                 researcher_id=researcher,
                 action="retrieve",
@@ -231,7 +231,7 @@ def retrieve(
             )
             return RetrieveResponse(
                 node=HOSPITAL_NODE,  # type: ignore[arg-type]
-                study_id=study_id,
+                study_id=study.StudyID,
                 study=_redact_study(study, full=True),
                 status="ok",
             )
