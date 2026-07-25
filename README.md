@@ -29,42 +29,33 @@ See [DEMO.md](DEMO.md) for the pitch walkthrough and known gaps.
 
 | Service | Port | Role |
 |---------|------|------|
-| BCH node | 8001 | Pediatric data; Harvard IRB → full metadata + retrieve |
-| MGH node | 8002 | Adult data; allowlisted `.edu` → count-only |
-| BWH node | 8003 | Adult data; no Harvard on SSO allowlist |
-| Portal | 8010 | Synonym expansion, fan-out, aggregate suppression, UI |
+| Portal | 8010 | **Platform SSO** + UI; fans out gateway-shaped searches |
+| BCH / MGH / BWH | 8001–8003 | Local hospital backends (mock gateways until `GATEWAY_*_URL` set) |
 
-SSO: per-node allowlists of `harvard.edu` / `mit.edu` / `northeastern.edu` / `bu.edu` emails.
-Tokens are HS256 JWTs signed with **distinct** per-node secrets (5-minute TTL).
-Scopes: `imaging:query`, `imaging:retrieve`.
-
-## Node API
-
-| Method | Path | Auth |
-|--------|------|------|
-| GET | `/health` | none |
-| POST | `/auth/login` | researcher profile body |
-| POST | `/query` | Bearer + `imaging:query` |
-| GET | `/retrieve/{study_id}` | Bearer + `imaging:retrieve` |
-| GET | `/audit` | none (demo) |
-| GET | `/api/studies*` | Bearer (legacy endpoints locked down) |
+**Dual SSO:** platform login unlocks the dashboard; each hospital gateway runs its own SSO/PII policy. Set `GATEWAY_BCH_URL` / `GATEWAY_MGH_URL` / `GATEWAY_BWH_URL` to point at real gateways — otherwise local nodes mock that contract.
 
 ## Portal API
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/search` | Fan-out login+query; return aggregated results to user |
-| POST | `/retrieve` | Re-auth to node; broker study payload to user |
+| POST | `/platform/login` | Platform SSO → session token |
+| GET | `/platform/me` | Current platform session |
+| POST | `/search` | Requires platform Bearer; emits gateway `{query_id, filters}` fan-out |
+| POST | `/retrieve` | Broker study payload (platform Bearer) |
 | GET | `/profiles` | Demo researcher presets |
 | GET | `/audit/{node}` | Proxy node audit log |
 
 ## Layout
 
 ```
-auth/           # SSO policies, JWT, audit
-portal/         # broker + UI + synonyms
-shared/         # frozen contracts
-search.py       # local study matcher
-main.py         # hospital node app
-tests/          # contract smoke harness
+auth/              # Hospital-node SSO / JWT / audit (mock gateway backend)
+portal/
+  platform_auth.py # Platform SSO
+  gateway.py       # Teammate gateway request/response adapter
+  app.py           # Portal API + static dashboard
+  static/          # Dashboard UI (login gate + search cards)
+shared/            # Frozen contracts
+search.py          # Local study matcher
+main.py            # Hospital node app
+tests/             # Contract smoke harness
 ```

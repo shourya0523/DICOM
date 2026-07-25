@@ -146,3 +146,58 @@ input, select {
   text-decoration: underline;
   cursor: pointer;
 }
+
+.login-gate {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+.login-card {
+  max-width: 480px;
+  width: 100%;
+}
+.login-card h1 {
+  font-size: 1.6rem;
+  margin-bottom: 0.4rem;
+}
+#login-btn {
+  margin-top: 1rem;
+  background: var(--accent);
+  border-color: transparent;
+  color: #061018;
+  font-weight: 600;
+}
+.error {
+  color: var(--deny);
+  font-size: 0.85rem;
+  margin: 0.6rem 0 0;
+}
+.hero-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.session {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+button.ghost {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.codeblock.compact {
+  max-height: 80px;
+  margin-top: 0.5rem;
+}
+.profile-row button.active, #search-btn, #retrieve-btn, #audit-btn, #login-btn {
+  background: var(--accent);
+  border-color: transparent;
+  color: #061018;
+  font-weight: 600;
+}

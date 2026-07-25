@@ -1,4 +1,4 @@
-"""Central portal — fans out to hospital nodes and brokers results to the user."""
+"""Central portal — platform SSO + gateway fan-out; keeps existing dashboard UI."""
 
 from __future__ import annotations
 
@@ -8,11 +8,24 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
+from portal.gateway import (
+    build_gateway_request,
+    call_gateway_search,
+    gateway_to_dashboard_card,
+    gateway_urls,
+    use_real_gateway_protocol,
+)
+from portal.platform_auth import (
+    PlatformLoginRequest,
+    login as platform_login,
+    verify_platform_token,
+)
 from portal.synonyms import expand
 from shared.contracts import (
     NODE_PORTS,
@@ -21,7 +34,6 @@ from shared.contracts import (
     DEMO_PROFILES,
     PortalRetrieveRequest,
     PortalSearchRequest,
-    QueryRequest,
     ResearcherProfile,
 )
 
@@ -40,8 +52,8 @@ def node_urls() -> dict[str, str]:
 
 app = FastAPI(
     title="Federated DICOM Search Portal",
-    description="Central broker: fans out queries to hospital nodes under zero-trust SSO.",
-    version="1.0.0",
+    description="Platform SSO + hospital gateway fan-out (gateway owns hospital SSO/PII).",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -52,9 +64,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+_bearer = HTTPBearer(auto_error=False)
+
+
+def require_platform(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> dict[str, Any]:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="platform login required")
+    return verify_platform_token(credentials.credentials)
+
 
 def _apply_portal_suppression(results: list[dict[str, Any]]) -> dict[str, Any]:
-    """If only one node contributes a small nonsuppressed nonzero count, suppress aggregate."""
     contributing = []
     for r in results:
         if r.get("status") == "ok" and isinstance(r.get("count"), int) and r["count"] > 0:
@@ -92,54 +113,28 @@ async def _login(client: httpx.AsyncClient, base: str, researcher: ResearcherPro
     return resp.json()
 
 
-async def _query_node(
-    client: httpx.AsyncClient,
-    name: str,
-    base: str,
-    researcher: ResearcherProfile,
-    q: str,
-    expanded: list[str],
-) -> dict[str, Any]:
-    try:
-        login = await _login(client, base, researcher)
-        if login.get("status") == "denied_at_sso" or "access_token" not in login:
-            return {
-                "node": name,
-                "status": "denied",
-                "tier": "none",
-                "count": None,
-                "studies": [],
-                "reason": login.get("detail", "denied_at_sso"),
-                "sso": "denied_at_sso",
-            }
-
-        token = login["access_token"]
-        body = QueryRequest(q=q, expanded_terms=expanded).model_dump()
-        resp = await client.post(
-            f"{base.rstrip('/')}/query",
-            json=body,
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        data["sso"] = "ok"
-        data["scope"] = login.get("scope", [])
-        return data
-    except httpx.HTTPError as exc:
-        return {
-            "node": name,
-            "status": "denied",
-            "tier": "none",
-            "count": None,
-            "studies": [],
-            "reason": f"node unreachable: {exc}",
-            "sso": "error",
-        }
-
-
 @app.get("/health")
 def health():
-    return {"status": "healthy", "service": "portal", "port": PORTAL_PORT}
+    return {
+        "status": "healthy",
+        "service": "portal",
+        "port": PORTAL_PORT,
+        "gateway_mode": "remote" if use_real_gateway_protocol() else "mock_local_nodes",
+    }
+
+
+@app.post("/platform/login")
+def do_platform_login(req: PlatformLoginRequest):
+    return platform_login(req)
+
+
+@app.get("/platform/me")
+def platform_me(claims: dict = Depends(require_platform)):
+    return {
+        "email": claims.get("sub"),
+        "org": claims.get("org", ""),
+        "display_name": claims.get("display_name", claims.get("sub")),
+    }
 
 
 @app.get("/profiles")
@@ -148,25 +143,39 @@ def profiles():
 
 
 @app.post("/search")
-async def search(req: PortalSearchRequest):
+async def search(req: PortalSearchRequest, claims: dict = Depends(require_platform)):
     expanded = expand(req.q)
-    urls = node_urls()
+    gateway_req = build_gateway_request(req.q)
+    urls = gateway_urls()
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         tasks = [
-            _query_node(client, name, base, req.researcher, req.q, expanded)
+            call_gateway_search(
+                client,
+                provider=name,
+                base=base,
+                gateway_req=gateway_req,
+                researcher=req.researcher,
+            )
             for name, base in urls.items()
         ]
-        results = await asyncio.gather(*tasks)
+        gateway_results = await asyncio.gather(*tasks)
 
-    payload = _apply_portal_suppression(list(results))
+    cards = [gateway_to_dashboard_card(g) for g in gateway_results]
+    payload = _apply_portal_suppression(cards)
     payload["q"] = req.q
     payload["expanded_terms"] = expanded
     payload["researcher"] = req.researcher.model_dump()
+    payload["platform_user"] = claims.get("sub")
+    payload["gateway_request"] = gateway_req
+    payload["gateway_responses"] = [
+        {k: v for k, v in g.items() if not str(k).startswith("_")} for g in gateway_results
+    ]
     return payload
 
 
 @app.post("/retrieve")
-async def retrieve(req: PortalRetrieveRequest):
+async def retrieve(req: PortalRetrieveRequest, claims: dict = Depends(require_platform)):
     urls = node_urls()
     base = urls.get(req.node)
     if not base:
@@ -189,11 +198,13 @@ async def retrieve(req: PortalRetrieveRequest):
         if resp.status_code == 404:
             raise HTTPException(status_code=404, detail=resp.json().get("detail", resp.text))
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        data["platform_user"] = claims.get("sub")
+        return data
 
 
 @app.get("/audit/{node}")
-async def proxy_audit(node: str):
+async def proxy_audit(node: str, claims: dict = Depends(require_platform)):
     urls = node_urls()
     base = urls.get(node.upper())
     if not base:

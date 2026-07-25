@@ -100,25 +100,60 @@ def main() -> int:
     code, _ = req("GET", f"{BCH}/api/studies")
     check("Unauth /api/studies → 401", code == 401)
 
-    print("=== Portal fan-out ===")
+    print("=== Platform SSO ===")
+    code, _ = req(
+        "POST",
+        f"{PORTAL}/platform/login",
+        {"email": "guest@example.com", "org": "Public"},
+    )
+    check("Guest denied at platform SSO", code == 403)
+
+    code, plat = req(
+        "POST",
+        f"{PORTAL}/platform/login",
+        {"email": HARVARD["researcher_id"], "org": HARVARD["org"]},
+    )
+    check("Harvard platform SSO", code == 200 and "token" in plat)
+    platform_token = plat.get("access_token") or plat.get("token")
+
+    code, _ = req("POST", f"{PORTAL}/search", {"q": "brain", "researcher": HARVARD})
+    check("Portal search requires platform token", code == 401)
+
+    print("=== Portal fan-out (via gateway adapter) ===")
     code, portal_search = req(
         "POST",
         f"{PORTAL}/search",
         {"q": "pediatric brain MRI", "researcher": HARVARD},
+        platform_token,
     )
     nodes = {n["node"]: n for n in portal_search.get("nodes", [])}
     check("Portal returns BCH node", code == 200 and "BCH" in nodes)
     check("Portal returns BWH deny path", nodes.get("BWH", {}).get("status") == "denied")
+    gw_req = portal_search.get("gateway_request") or {}
+    check(
+        "Gateway request has filters",
+        isinstance(gw_req.get("filters"), dict) and "query_id" in gw_req,
+    )
+    gw_resps = portal_search.get("gateway_responses") or []
+    check("Gateway responses present", len(gw_resps) >= 2)
+    bch_gw = next((g for g in gw_resps if g.get("provider") == "BCH"), {})
+    check(
+        "BCH gateway count_band",
+        bch_gw.get("status") == "complete" and bool(bch_gw.get("count_band")),
+    )
+
     code, portal_ret = req(
         "POST",
         f"{PORTAL}/retrieve",
         {"node": "BCH", "study_id": "BR-1543", "researcher": HARVARD},
+        platform_token,
     )
     check("Portal brokers retrieve", code == 200 and portal_ret.get("study_id") == "BR-1543")
     code, _ = req(
         "POST",
         f"{PORTAL}/retrieve",
         {"node": "BCH", "study_id": "BR-1543", "researcher": MIT},
+        platform_token,
     )
     check("Portal retrieve deny for MIT", code == 403)
 

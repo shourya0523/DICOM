@@ -7,33 +7,61 @@
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-  <main class="shell">
+  <!-- Platform SSO gate -->
+  <div id="login-gate" class="login-gate">
+    <div class="login-card panel">
+      <p class="eyebrow">Platform SSO</p>
+      <h1>Sign in to the portal</h1>
+      <p class="lede">
+        Hospital gateways handle their own SSO. This login only unlocks the
+        federated search platform.
+      </p>
+      <div class="profile-row" id="login-presets"></div>
+      <div class="fields">
+        <label>Email <input id="login-email" type="email" placeholder="you@harvard.edu" /></label>
+        <label>Org <input id="login-org" type="text" placeholder="Harvard University" /></label>
+      </div>
+      <p id="login-error" class="error" hidden></p>
+      <button id="login-btn" type="button">Enter platform</button>
+      <p class="hint">Allowed demo emails: harvard / mit / northeastern / bu .edu — guest is blocked here.</p>
+    </div>
+  </div>
+
+  <main class="shell" id="app-shell" hidden>
     <header class="hero">
-      <p class="eyebrow">Zero-trust federated imaging</p>
+      <div class="hero-top">
+        <p class="eyebrow">Zero-trust federated imaging</p>
+        <div class="session">
+          <span id="session-label" class="meta"></span>
+          <button id="logout-btn" type="button" class="ghost">Sign out</button>
+        </div>
+      </div>
       <h1>DICOM Search Portal</h1>
       <p class="lede">
-        Query hospital nodes independently. Each node authenticates via its own SSO
-        and decides what to return — full metadata, a count, suppressed, or denied.
+        Platform SSO gets you in. Each hospital <strong>gateway</strong> runs its own SSO
+        and returns banded counts — the portal aggregates and brokers results to you.
       </p>
     </header>
 
     <section class="panel">
-      <h2>Researcher profile</h2>
+      <h2>Hospital identity (forwarded to gateways)</h2>
       <div class="profile-row" id="profile-buttons"></div>
       <div class="fields">
         <label>Email <input id="email" type="email" /></label>
         <label>Org <input id="org" type="text" /></label>
         <label class="check"><input id="irb" type="checkbox" /> IRB approved</label>
       </div>
+      <p class="hint">Gateways decide access from this identity. Independent from platform SSO.</p>
     </section>
 
     <section class="panel">
       <h2>Search</h2>
       <div class="search-row">
         <input id="query" type="text" placeholder="pediatric brain MRI" value="pediatric brain MRI" />
-        <button id="search-btn" type="button">Search all nodes</button>
+        <button id="search-btn" type="button">Search all gateways</button>
       </div>
       <p class="hint">Try also: <code>hydrocephalus</code>, <code>lissencephaly</code> (rare cohort)</p>
+      <pre id="gateway-req-out" class="codeblock compact" hidden></pre>
     </section>
 
     <section class="panel" id="results-panel" hidden>
