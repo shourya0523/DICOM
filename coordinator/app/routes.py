@@ -46,9 +46,12 @@ def search():
     deduced, gemini_meta = deduce_filters(nl_string, user_filters)
     resolved_filters, provenance = resolve_filters(user_filters, deduced)
 
-    # Fan out across the hospital network via the gateway (currently stubbed).
-    results = search_network(resolved_filters, current_app.config["HOSPITAL_CODES"])
-
+    # Fan out across the hospital network via each provider gateway.
+    results = search_network(
+        resolved_filters,
+        current_app.config["HOSPITAL_CODES"],
+        query_id=query_id,
+    )
     return jsonify(
         query_id=query_id,
         nl_string=nl_string,

@@ -1,9 +1,8 @@
 # Local demo stack.
 #
 #   docker compose up --build                     # BCH node (:8001) + provider gateway (:8101)
-#   docker compose --profile portal up --build    # + MGH/BWH nodes and the portal UI (:8010)
+#   docker compose --profile portal up --build    # + MGH/BWH nodes/gateways, coordinator, portal
 #
-# Add further services under `services:` — see the placeholder at the bottom.
 name: dicom-demo
 
 x-hospital-node: &hospital-node
@@ -11,7 +10,6 @@ x-hospital-node: &hospital-node
     context: .
     target: hospital-node
   volumes:
-    # Edit hospital JSON without rebuilding the image.
     - ./data/hospitals:/app/data/hospitals:ro
   healthcheck:
     test:
@@ -23,51 +21,55 @@ x-hospital-node: &hospital-node
     timeout: 3s
     retries: 10
 
+x-provider-gateway: &provider-gateway
+  build:
+    context: .
+    target: gateway
+  environment: &gateway-env
+    DATABASE_PATH: /var/lib/provider-gateway/gateway.db
+    TOKEN_SECRET: ${TOKEN_SECRET:?Set TOKEN_SECRET in .env}
+    SERVICE_API_KEY: ${SERVICE_API_KEY:?Set SERVICE_API_KEY in .env}
+    GATEWAY_HOST: 0.0.0.0
+    OPENMED_FORCE_FALLBACK: ${OPENMED_FORCE_FALLBACK:-1}
+    NODE_SERVICE_ID: ${NODE_SERVICE_ID:-jorgenson@harvard.edu}
+    NODE_SERVICE_ORG: ${NODE_SERVICE_ORG:-Harvard University}
+    NODE_SERVICE_IRB_APPROVED: ${NODE_SERVICE_IRB_APPROVED:-1}
+  healthcheck:
+    test:
+      - CMD
+      - python
+      - -c
+      - "import urllib.request; urllib.request.urlopen('http://localhost:8101/health')"
+    interval: 5s
+    timeout: 3s
+    retries: 10
+
 services:
   hospital-node:
     <<: *hospital-node
     environment:
       HOSPITAL_NODE: ${PROVIDER_CODE:-BCH}
     ports:
-      # Published so the coordinator/portal (or you) can reach the node directly.
       - "${NODE_PORT:-8001}:8001"
 
   provider-gateway:
-    build:
-      context: .
-      target: gateway
+    <<: *provider-gateway
     depends_on:
       hospital-node:
         condition: service_healthy
     environment:
+      <<: *gateway-env
       PROVIDER_CODE: ${PROVIDER_CODE:-BCH}
       PROVIDER_NAME: ${PROVIDER_NAME:-Boston Children's Hospital}
       NODE_URL: http://hospital-node:8001
-      DATABASE_PATH: /var/lib/provider-gateway/gateway.db
-      TOKEN_SECRET: ${TOKEN_SECRET:?Set TOKEN_SECRET in .env}
-      SERVICE_API_KEY: ${SERVICE_API_KEY:?Set SERVICE_API_KEY in .env}
-      GATEWAY_HOST: 0.0.0.0
       GATEWAY_PORT: 8101
-      OPENMED_FORCE_FALLBACK: ${OPENMED_FORCE_FALLBACK:-1}
-      # Used only when the hospital node enforces SSO on /api/studies.
-      NODE_SERVICE_ID: ${NODE_SERVICE_ID:-jorgenson@harvard.edu}
-      NODE_SERVICE_ORG: ${NODE_SERVICE_ORG:-Harvard University}
-      NODE_SERVICE_IRB_APPROVED: ${NODE_SERVICE_IRB_APPROVED:-1}
+      DATABASE_PATH: /var/lib/provider-gateway/bch_gateway.db
     ports:
       - "${GATEWAY_PORT:-8101}:8101"
     volumes:
-      - gateway-data:/var/lib/provider-gateway
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "import urllib.request; urllib.request.urlopen('http://localhost:8101/health')"
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      - gateway-data-bch:/var/lib/provider-gateway
 
-  # --- `--profile portal`: the full three-node fan-out demo -------------------
+  # --- `--profile portal`: full three-hospital fan-out demo -------------------
   hospital-node-mgh:
     <<: *hospital-node
     profiles: ["portal"]
@@ -84,6 +86,42 @@ services:
     ports:
       - "${BWH_NODE_PORT:-8003}:8001"
 
+  provider-gateway-mgh:
+    <<: *provider-gateway
+    profiles: ["portal"]
+    depends_on:
+      hospital-node-mgh:
+        condition: service_healthy
+    environment:
+      <<: *gateway-env
+      PROVIDER_CODE: MGH
+      PROVIDER_NAME: Massachusetts General Hospital
+      NODE_URL: http://hospital-node-mgh:8001
+      GATEWAY_PORT: 8101
+      DATABASE_PATH: /var/lib/provider-gateway/mgh_gateway.db
+    ports:
+      - "${MGH_GATEWAY_PORT:-8102}:8101"
+    volumes:
+      - gateway-data-mgh:/var/lib/provider-gateway
+
+  provider-gateway-bwh:
+    <<: *provider-gateway
+    profiles: ["portal"]
+    depends_on:
+      hospital-node-bwh:
+        condition: service_healthy
+    environment:
+      <<: *gateway-env
+      PROVIDER_CODE: BWH
+      PROVIDER_NAME: Brigham and Women's Hospital
+      NODE_URL: http://hospital-node-bwh:8001
+      GATEWAY_PORT: 8101
+      DATABASE_PATH: /var/lib/provider-gateway/bwh_gateway.db
+    ports:
+      - "${BWH_GATEWAY_PORT:-8103}:8101"
+    volumes:
+      - gateway-data-bwh:/var/lib/provider-gateway
+
   coordinator:
     build:
       context: .
@@ -91,6 +129,10 @@ services:
     profiles: ["portal"]
     depends_on:
       provider-gateway:
+        condition: service_healthy
+      provider-gateway-mgh:
+        condition: service_healthy
+      provider-gateway-bwh:
         condition: service_healthy
     environment:
       FLASK_DEBUG: ${FLASK_DEBUG:-0}
@@ -100,8 +142,11 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
       HOSPITAL_CODES: BCH,MGH,BWH
-      # Real gateway wiring still stubbed in coordinator code; base URL points at BCH for now.
-      GATEWAY_BASE_URL: http://provider-gateway:8101
+      SERVICE_API_KEY: ${SERVICE_API_KEY:?Set SERVICE_API_KEY in .env}
+      GATEWAY_BCH_URL: http://provider-gateway:8101
+      GATEWAY_MGH_URL: http://provider-gateway-mgh:8101
+      GATEWAY_BWH_URL: http://provider-gateway-bwh:8101
+      GATEWAY_TIMEOUT: ${GATEWAY_TIMEOUT:-30}
       NODE_BCH_URL: http://hospital-node:8001
       NODE_MGH_URL: http://hospital-node-mgh:8001
       NODE_BWH_URL: http://hospital-node-bwh:8001
@@ -126,10 +171,15 @@ services:
       BCH_URL: http://hospital-node:8001
       MGH_URL: http://hospital-node-mgh:8001
       BWH_URL: http://hospital-node-bwh:8001
+      GATEWAY_BCH_URL: http://provider-gateway:8101
+      GATEWAY_MGH_URL: http://provider-gateway-mgh:8101
+      GATEWAY_BWH_URL: http://provider-gateway-bwh:8101
       COORDINATOR_URL: http://coordinator:5001
       PLATFORM_JWT_SECRET: ${PLATFORM_JWT_SECRET:-platform-demo-secret-change-me}
     ports:
       - "${PORTAL_PORT:-8010}:8010"
 
 volumes:
-  gateway-data:
+  gateway-data-bch:
+  gateway-data-mgh:
+  gateway-data-bwh:

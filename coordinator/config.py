@@ -37,19 +37,25 @@ class Config:
     # --- Hospital network ---
     # The coordinator fans queries out over these hospital codes. It does NOT
     # call node database ports directly — every call is routed via the gateway.
-    HOSPITAL_CODES = [c.strip() for c in _env("HOSPITAL_CODES", "BCH,MGH,BWH").split(",")]
+    HOSPITAL_CODES = [c.strip() for c in _env("HOSPITAL_CODES", "BCH,MGH,BWH").split(",") if c.strip()]
 
-    # --- Gateway (secure access layer in front of the nodes) ---
-    # The gateway exposes three endpoints. Real links are TBD — these are stubs
-    # to be filled once the gateway service URLs are provided.
-    GATEWAY_BASE_URL = _env("GATEWAY_BASE_URL", "http://localhost:6000")
-    GATEWAY_ENDPOINTS = {
-        # NOTE: purposes/paths are placeholders pending the real gateway links.
-        "endpoint_1": _env("GATEWAY_ENDPOINT_1", "/endpoint-1"),
-        "endpoint_2": _env("GATEWAY_ENDPOINT_2", "/endpoint-2"),
-        "endpoint_3": _env("GATEWAY_ENDPOINT_3", "/endpoint-3"),
+    # Shared key for authenticated gateway calls (X-API-Key).
+    SERVICE_API_KEY = _env("SERVICE_API_KEY", "demo-key")
+
+    # Per-hospital provider gateway base URLs (preferred).
+    GATEWAY_URLS = {
+        "BCH": _env("GATEWAY_BCH_URL", _env("GATEWAY_BASE_URL", "http://localhost:8101")),
+        "MGH": _env("GATEWAY_MGH_URL", "http://localhost:8102"),
+        "BWH": _env("GATEWAY_BWH_URL", "http://localhost:8103"),
     }
-    GATEWAY_TIMEOUT = float(_env("GATEWAY_TIMEOUT", "5"))
+    # Legacy single-base URL kept for older env files / docs.
+    GATEWAY_BASE_URL = _env("GATEWAY_BASE_URL", GATEWAY_URLS["BCH"])
+    GATEWAY_ENDPOINTS = {
+        "endpoint_1": _env("GATEWAY_ENDPOINT_1", "/search"),
+        "endpoint_2": _env("GATEWAY_ENDPOINT_2", "/access-requests"),
+        "endpoint_3": _env("GATEWAY_ENDPOINT_3", "/capabilities"),
+    }
+    GATEWAY_TIMEOUT = float(_env("GATEWAY_TIMEOUT", "30"))
 
     # Legacy dev utility: direct node URLs, used only by GET /api/nodes health
     # check. The real search path goes through the gateway, not these.

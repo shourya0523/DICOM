@@ -279,21 +279,51 @@ async def search(req: PortalSearchRequest, claims: dict = Depends(require_platfo
 
     nodes: list[dict[str, Any]] = []
     gateway_responses: list[dict[str, Any]] = []
+    aggregate = 0
+    any_count = False
     for r in results:
-        code = r.get("hospital_code") or r.get("node")
-        reason = r.get("detail") or "awaiting gateway wiring"
-        pending = r.get("status") == "stub"
-        status = "pending" if pending else (r.get("status") or "denied")
+        code = r.get("hospital_code") or r.get("provider") or r.get("node")
+        status = (r.get("status") or "error").lower()
+        match_count = r.get("match_count")
+        if isinstance(match_count, int):
+            aggregate += match_count
+            any_count = True
+        if status == "ok":
+            node_status = "ok"
+            tier = "full_metadata" if r.get("access_available") else "count_only"
+            reason = None
+        elif status in {"stub", "pending"}:
+            node_status = "pending"
+            tier = "none"
+            reason = r.get("detail") or "awaiting gateway wiring"
+        elif status in {"unauthorized", "denied"}:
+            node_status = "denied"
+            tier = "none"
+            reason = r.get("detail") or status
+        else:
+            node_status = "error"
+            tier = "none"
+            reason = r.get("detail") or status
         nodes.append(
-            {"node": code, "status": status, "count": None, "tier": "none", "studies": [], "reason": reason}
+            {
+                "node": code,
+                "status": node_status,
+                "count": match_count,
+                "tier": tier,
+                "studies": [],
+                "reason": reason,
+            }
         )
         gateway_responses.append(
             {
                 "provider": code,
-                "status": status,
-                "match_count": None,
-                "count_band": "awaiting gateway" if pending else None,
-                "access_available": False,
+                "status": node_status,
+                "match_count": match_count,
+                "count_band": r.get("count_band"),
+                "modalities": r.get("modalities") or [],
+                "body_parts": r.get("body_parts") or [],
+                "cohort_handle": r.get("cohort_handle"),
+                "access_available": bool(r.get("access_available")),
                 "sample_summary": None,
                 "reason": reason,
             }
@@ -306,7 +336,7 @@ async def search(req: PortalSearchRequest, claims: dict = Depends(require_platfo
         "gateway_request": {"query_id": payload["query_id"], "filters": _from_coordinator_filters(resolved)},
         "gateway_responses": gateway_responses,
         "nodes": nodes,
-        "aggregate_count": None,
+        "aggregate_count": aggregate if any_count else None,
         "portal_suppressed": False,
         "portal_reason": None,
         "expanded_terms": [],
