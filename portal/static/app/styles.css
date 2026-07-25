@@ -577,6 +577,13 @@ label.check {
 .trust-icon.granted { color: var(--sage); }
 .trust-icon.denied { color: var(--clay); }
 .trust-icon.suppressed { color: var(--amber); }
+.trust-icon.pending { color: var(--indigo-ink); }
+
+.card.pending { border-left-color: var(--indigo-ink); }
+.badge.pending {
+  background: var(--indigo-soft);
+  color: var(--indigo-ink);
+}
 
 .reason {
   margin: 0.55rem 0 0.65rem;

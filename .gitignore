@@ -6,6 +6,7 @@ __pycache__/
 *.egg-info/
 *.db
 *.db-*
+docs/
 
 # Generated demo artefacts
 data/gateway/

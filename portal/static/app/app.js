@@ -222,6 +222,13 @@ function trustIcon(kind) {
       </svg>
     </span>`;
   }
+  if (cls === "pending") {
+    return `<span class="trust-icon pending" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+      </svg>
+    </span>`;
+  }
   return `<span class="trust-icon denied" aria-hidden="true">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
       <path d="M9 8H7a4 4 0 0 0 0 8h2"/><path d="M15 8h2a4 4 0 0 1 0 8h-2"/>
@@ -235,13 +242,20 @@ function trustClass(status) {
     return "granted";
   }
   if (status === "suppressed" || status === "suppress") return "suppressed";
+  if (status === "pending" || status === "stub" || status === "awaiting_gateway") return "pending";
   return "denied";
 }
 
 function badge(status) {
   const cls = trustClass(status);
   const label =
-    cls === "granted" ? "has data" : cls === "suppressed" ? "protected" : "no access";
+    cls === "granted"
+      ? "has data"
+      : cls === "suppressed"
+        ? "protected"
+        : cls === "pending"
+          ? "pending"
+          : "no access";
   return `<span class="badge ${cls}">${label}</span>`;
 }
 
@@ -404,7 +418,7 @@ function renderResults(data) {
   const withData = nodes.filter((n) => {
     const gw = byProvider[n.node] || n.gateway || {};
     const st = trustClass(gw.status || n.status);
-    return st === "granted" || st === "suppressed";
+    return st === "granted" || st === "suppressed" || st === "pending";
   });
   const denied = nodes.filter((n) => {
     const gw = byProvider[n.node] || n.gateway || {};
@@ -417,12 +431,23 @@ function renderResults(data) {
   } else {
     aggregateEl.className = "sub";
     const n = withData.length;
-    aggregateEl.textContent =
-      n === 0
-        ? "No hospitals reported matching data for this query."
-        : `${n} hospital${n === 1 ? "" : "s"} reported matching data` +
-          (data.aggregate_count != null ? ` · aggregate ${data.aggregate_count}` : "") +
-          (denied.length ? ` · ${denied.length} denied access` : "");
+    const allPending =
+      n > 0 &&
+      withData.every(
+        (nd) => trustClass((byProvider[nd.node] || nd.gateway || {}).status || nd.status) === "pending"
+      );
+    if (allPending) {
+      aggregateEl.textContent =
+        `Filters resolved by coordinator · ${n} hospital${n === 1 ? "" : "s"} reached · awaiting gateway results` +
+        (denied.length ? ` · ${denied.length} denied` : "");
+    } else {
+      aggregateEl.textContent =
+        n === 0
+          ? "No hospitals reported matching data for this query."
+          : `${n} hospital${n === 1 ? "" : "s"} reported matching data` +
+            (data.aggregate_count != null ? ` · aggregate ${data.aggregate_count}` : "") +
+            (denied.length ? ` · ${denied.length} denied access` : "");
+    }
   }
 
   const ordered = [...withData, ...denied];
